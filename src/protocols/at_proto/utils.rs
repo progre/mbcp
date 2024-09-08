@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use atrium_api::{
-    app::{self, bsky::feed::post::ReplyRef},
-    com,
-    records::KnownRecord,
+    app, com,
+    record::KnownRecord,
+    types::{Object, TryFromUnknown},
 };
 use chrono::{DateTime, FixedOffset};
 use regex::Regex;
@@ -154,15 +154,15 @@ pub async fn find_reply_root(
     rkey: &str,
 ) -> Result<Option<com::atproto::repo::strong_ref::Main>> {
     let record = api.repo.get_record(http_client, session, rkey).await?;
-    let atrium_api::records::Record::Known(KnownRecord::AppBskyFeedPost(record)) = record.value
+    let KnownRecord::AppBskyFeedPost(record) = KnownRecord::try_from_unknown(record.data.value)?
     else {
         unreachable!();
     };
-    let Some(reply) = record.reply else {
+    let Some(reply) = record.data.reply else {
         return Ok(None);
     };
 
-    Ok(Some(reply.root))
+    Ok(Some(reply.data.root))
 }
 
 pub async fn to_reply<'a>(
@@ -170,7 +170,7 @@ pub async fn to_reply<'a>(
     http_client: &reqwest::Client,
     session: &com::atproto::server::create_session::Output,
     reply_identifier: Option<&str>,
-) -> Result<Option<ReplyRef>> {
+) -> Result<Option<Object<app::bsky::feed::post::ReplyRefData>>> {
     let Some(reply_identifier) = reply_identifier else {
         return Ok(None);
     };
@@ -178,5 +178,8 @@ pub async fn to_reply<'a>(
     let root = find_reply_root(api, http_client, session, &uri_to_post_rkey(&parent.uri)?)
         .await?
         .unwrap_or_else(|| parent.clone());
-    Ok(Some(app::bsky::feed::post::ReplyRef { parent, root }))
+    Ok(Some(Object::from(app::bsky::feed::post::ReplyRefData {
+        parent,
+        root,
+    })))
 }

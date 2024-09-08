@@ -7,10 +7,11 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1.0.71", features = ["backtrace"] }
 async-trait = "0.1.68"
-atrium-api = "0.22.0"
+atrium-api = "0.24.2"
+atrium-xrpc-client = "0.5.6"
 aws-config = "1.1.7"
 aws_lambda_events = { version = "0.15.0", default-features = false, features = [
-  "cloudwatch_events"
+    "cloudwatch_events",
 ] }
 aws-sdk-dynamodb = "1.16.0"
 chrono = "0.4.26"
@@ -27,16 +28,15 @@ reqwest = { version = "0.11.24", features = ["json"] }
 serde = { version = "1.0.164", features = ["derive"] }
 serde_dynamo = { version = "4.2.13", features = ["aws-sdk-dynamodb+1"] }
 serde_json = "1.0.97"
-time = { version = "0.3.22", features = ["formatting"] }
+time = { version = "0.3.36", features = ["formatting"] }
 tokio = { version = "1.28.2", features = ["rt-multi-thread", "macros", "time"] }
 tokio-util = "0.7.8"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = [
-  "env-filter",
-  "local-time"
+    "env-filter",
+    "local-time",
 ] }
 webpage = "2.0.0"
-atrium-xrpc-client = "0.5.4"
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

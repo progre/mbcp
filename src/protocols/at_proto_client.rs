@@ -5,10 +5,10 @@ use async_trait::async_trait;
 use atrium_api::{
     agent::{store::MemorySessionStore, AtpAgent},
     app, com,
-    records::KnownRecord,
+    record::KnownRecord,
     types::{
         string::{Datetime, Nsid},
-        LimitedNonZeroU8,
+        LimitedNonZeroU8, Object, TryIntoUnknown,
     },
 };
 use atrium_xrpc_client::reqwest::ReqwestClient;
@@ -56,11 +56,11 @@ impl Client {
 
     #[tracing::instrument(name = "at_proto_client::Client::init_session", skip_all)]
     async fn init_session(&mut self) -> Result<()> {
-        let input = com::atproto::server::create_session::Input {
+        let input = Object::from(com::atproto::server::create_session::InputData {
             identifier: self.identifier.clone(),
             password: self.password.clone(),
             auth_factor_token: None,
-        };
+        });
         let session = self
             .agent
             .api
@@ -95,12 +95,12 @@ impl super::Client for Client {
             }
         };
 
-        let params = app::bsky::feed::get_author_feed::Parameters {
+        let params = Object::from(app::bsky::feed::get_author_feed::ParametersData {
             actor: session.did.clone().into(),
             cursor: None,
             filter: None,
             limit: Some(LimitedNonZeroU8::try_from(50).unwrap()),
-        };
+        });
         let output = self
             .agent
             .api
@@ -110,7 +110,7 @@ impl super::Client for Client {
             .get_author_feed(params)
             .await
             .map_err(|err| anyhow::anyhow!("{:?}", err))?;
-        output.feed.into_iter().map(|x| x.try_into()).collect()
+        output.data.feed.into_iter().map(|x| x.try_into()).collect()
     }
 
     #[tracing::instrument(name = "at_proto_client::Client::post", skip_all)]
@@ -158,13 +158,13 @@ impl super::Client for Client {
 
         let identifier: com::atproto::repo::create_record::Output =
             serde_json::from_str(target_identifier)?;
-        let record = atrium_api::records::Record::Known(KnownRecord::AppBskyFeedRepost(Box::new(
-            app::bsky::feed::repost::Record {
+        let record = KnownRecord::AppBskyFeedRepost(Box::new(Object::from(
+            app::bsky::feed::repost::RecordData {
                 created_at: Datetime::new(created_at.to_owned()),
-                subject: com::atproto::repo::strong_ref::Main {
-                    cid: identifier.cid,
-                    uri: identifier.uri,
-                },
+                subject: Object::from(com::atproto::repo::strong_ref::MainData {
+                    cid: identifier.data.cid,
+                    uri: identifier.data.uri,
+                }),
             },
         )));
         let res = self
@@ -173,14 +173,14 @@ impl super::Client for Client {
             .com
             .atproto
             .repo
-            .create_record(com::atproto::repo::create_record::Input {
+            .create_record(Object::from(com::atproto::repo::create_record::InputData {
                 collection: Nsid::from_str("app.bsky.feed.repost").unwrap(),
-                record,
+                record: record.try_into_unknown()?,
                 repo: session.did.clone().into(),
                 rkey: None,
                 swap_commit: None,
                 validate: None,
-            })
+            }))
             .await
             .map_err(|err| anyhow::anyhow!("{:?}", err))?;
         Ok(serde_json::to_string(&res)?)
@@ -224,13 +224,13 @@ impl super::Client for Client {
             }
         };
 
-        let input = com::atproto::repo::delete_record::Input {
+        let input = Object::from(com::atproto::repo::delete_record::InputData {
             collection: Nsid::from_str("app.bsky.feed.repost").unwrap(),
             repo: session.did.clone().into(),
             rkey,
             swap_commit: None,
             swap_record: None,
-        };
+        });
         self.agent
             .api
             .com
