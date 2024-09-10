@@ -77,14 +77,6 @@ impl Client {
 
 #[async_trait]
 impl super::Client for Client {
-    fn origin(&self) -> &str {
-        &self.api.origin
-    }
-
-    fn identifier(&self) -> &str {
-        &self.identifier
-    }
-
     #[tracing::instrument(name = "at_proto_client::Client::fetch_statuses", skip_all)]
     async fn fetch_statuses(&mut self) -> Result<Vec<source::LiveStatus>> {
         let session = match &self.session {

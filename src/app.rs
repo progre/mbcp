@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -31,21 +30,28 @@ pub async fn do_main_task(
 ) -> Result<()> {
     trace!("do_main_task");
     let http_client = Arc::new(reqwest::Client::new());
-    let mut dst_client_map = HashMap::new();
     let store = Mutex::new(store);
     let users = config.users.iter();
     let futures = users.map(|config_user| get(&http_client, config_user, &store));
     for result in join_all(futures).await {
-        if let Some((src_account_key, dst_clients)) = result? {
-            dst_client_map.insert(src_account_key, dst_clients);
-        }
+        result?;
     }
     let store = store.into_inner().unwrap();
     if cancellation_token.is_cancelled() {
         debug!("cancel accepted");
         return Ok(());
     }
-    post(cancellation_token, store, &mut dst_client_map).await?;
+    post(
+        cancellation_token,
+        store,
+        http_client.clone(),
+        &config
+            .users
+            .iter()
+            .flat_map(|user| &user.dsts)
+            .collect::<Vec<_>>(),
+    )
+    .await?;
     if cancellation_token.is_cancelled() {
         debug!("cancel accepted");
         return Ok(());

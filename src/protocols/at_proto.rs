@@ -10,14 +10,12 @@ pub mod repo;
 pub mod utils;
 
 pub struct Api {
-    pub origin: String,
     pub repo: Repo,
 }
 
 impl Api {
     pub fn new(origin: String) -> Self {
         Self {
-            origin: origin.clone(),
             repo: Repo::new(origin.clone()),
         }
     }

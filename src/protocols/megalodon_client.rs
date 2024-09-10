@@ -132,14 +132,6 @@ impl Client {
 
 #[async_trait]
 impl super::Client for Client {
-    fn origin(&self) -> &str {
-        &self.origin
-    }
-
-    fn identifier(&self) -> &str {
-        &self.account_id
-    }
-
     #[tracing::instrument(name = "megalodon_client::Client::fetch_statuses", skip_all)]
     async fn fetch_statuses(&mut self) -> Result<Vec<source::LiveStatus>> {
         let resp = self

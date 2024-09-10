@@ -1,18 +1,15 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, trace, warn};
 
 use crate::{
-    app::AccountKey,
-    protocols::Client,
+    config::Account,
+    protocols::create_client,
     store::{
         self,
-        operations::{
-            AccountPair,
-            Operation::{CreatePost, CreateRepost, DeletePost, DeleteRepost, UpdatePost},
-        },
+        operations::Operation::{CreatePost, CreateRepost, DeletePost, DeleteRepost, UpdatePost},
     },
 };
 
@@ -21,23 +18,11 @@ use super::{
     delete_repost::delete_repost,
 };
 
-fn find_dst_client<'a>(
-    dst_clients_map: &'a mut HashMap<AccountKey, Vec<Box<dyn Client>>>,
-    account_pair: &AccountPair,
-) -> Option<&'a mut dyn Client> {
-    Some(
-        dst_clients_map
-            .get_mut(&account_pair.to_src_key())?
-            .iter_mut()
-            .find(|dst_client| dst_client.to_account_key() == account_pair.to_dst_key())?
-            .as_mut(),
-    )
-}
-
 pub async fn post(
     cancellation_token: &CancellationToken,
     store: &mut store::Store,
-    dst_clients_map: &mut HashMap<AccountKey, Vec<Box<dyn Client>>>,
+    http_client: Arc<reqwest::Client>,
+    dsts: &[&Account],
 ) -> Result<()> {
     trace!("post");
     loop {
@@ -51,17 +36,21 @@ pub async fn post(
             return Ok(());
         };
 
-        let dst_client = find_dst_client(dst_clients_map, operation.account_pair()).unwrap();
+        let dst = dsts
+            .iter()
+            .find(|dst| dst.to_account_key() == operation.account_pair().to_dst_key())
+            .ok_or_else(|| anyhow!("dst not found"))?;
+        let mut dst_client = create_client(http_client.clone(), dst).await?;
 
         let result = match operation {
-            CreatePost(operation) => create_post(store, dst_client, operation).await,
-            CreateRepost(operation) => create_repost(store, dst_client, operation).await,
+            CreatePost(operation) => create_post(store, dst_client.as_mut(), operation).await,
+            CreateRepost(operation) => create_repost(store, dst_client.as_mut(), operation).await,
             UpdatePost(_) => {
                 warn!("Update is not supported yet");
                 Ok(())
             }
-            DeletePost(operation) => delete_post(store, dst_client, operation).await,
-            DeleteRepost(operation) => delete_repost(store, dst_client, operation).await,
+            DeletePost(operation) => delete_post(store, dst_client.as_mut(), operation).await,
+            DeleteRepost(operation) => delete_repost(store, dst_client.as_mut(), operation).await,
         };
         if let Err(err) = result {
             error!("{:?}", err);

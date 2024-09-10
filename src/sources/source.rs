@@ -10,7 +10,7 @@ use tracing::trace;
 use crate::{
     app::AccountKey,
     config,
-    protocols::{create_client, create_clients, Client},
+    protocols::{create_client, Client},
     store::{
         self,
         operations::Operation::{CreatePost, CreateRepost, DeletePost, DeleteRepost, UpdatePost},
@@ -122,10 +122,10 @@ pub async fn get(
     http_client: &Arc<reqwest::Client>,
     config_user: &config::User,
     store: &Mutex<&mut store::Store>,
-) -> Result<Option<(AccountKey, Vec<Box<dyn Client>>)>> {
+) -> Result<()> {
     let mut src_client = create_client(http_client.clone(), &config_user.src).await?;
 
-    let src_account_key = src_client.to_account_key();
+    let src_account_key = config_user.src.to_account_key();
     let (has_users_operations, src_statuses) = {
         let mut store = store.lock().unwrap();
         let has_users_operations = has_users_operations(&store.operations, &src_account_key);
@@ -143,16 +143,20 @@ pub async fn get(
     }
     trace!("new operations: {:?}", operations);
     if operations.is_empty() && !has_users_operations {
-        return Ok(None);
+        return Ok(());
     }
 
-    let dst_clients = create_clients(http_client, &config_user.dsts).await?;
+    let dst_account_keys: Vec<AccountKey> = config_user
+        .dsts
+        .iter()
+        .map(|dst| dst.to_account_key())
+        .collect();
 
     if !operations.is_empty() {
         let mut store = store.lock().unwrap();
-        merge_operations(&mut store, &dst_clients, &src_account_key, &operations);
+        merge_operations(&mut store, &dst_account_keys, &src_account_key, &operations);
     }
-    Ok(Some((src_account_key, dst_clients)))
+    Ok(())
 }
 
 /**

@@ -3,7 +3,6 @@ use tracing::warn;
 use super::source::Operation;
 use crate::{
     app::AccountKey,
-    protocols::Client,
     store::{
         self,
         operations::Operation::{CreatePost, CreateRepost, DeletePost, DeleteRepost, UpdatePost},
@@ -11,17 +10,17 @@ use crate::{
 };
 
 fn to_store_operations(
-    dst_clients: &[Box<dyn Client>],
+    dst_account_keys: &[AccountKey],
     operations: &[Operation],
     src_account_key: &AccountKey,
 ) -> Vec<store::operations::Operation> {
-    dst_clients
+    dst_account_keys
         .iter()
-        .flat_map(|dst_client| {
-            let dst_account_key = dst_client.to_account_key();
-
-            let account_pair =
-                store::operations::AccountPair::from_keys(src_account_key.clone(), dst_account_key);
+        .flat_map(|dst_account_key| {
+            let account_pair = store::operations::AccountPair::from_keys(
+                src_account_key.clone(),
+                dst_account_key.clone(),
+            );
 
             operations
                 .iter()
@@ -82,11 +81,11 @@ fn create_operation_target_state(
 
 pub fn merge_operations(
     store: &mut store::Store,
-    dst_clients: &[Box<dyn Client>],
+    dst_account_keys: &[AccountKey],
     src_account_key: &AccountKey,
     src_operations: &[Operation],
 ) {
-    let mut new_operations = to_store_operations(dst_clients, src_operations, src_account_key);
+    let mut new_operations = to_store_operations(dst_account_keys, src_operations, src_account_key);
 
     let operations = &mut store.operations;
 

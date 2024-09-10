@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset};
 use futures::future::join_all;
 use serde_json::{json, Value};
+use tracing::info;
 
 use crate::{sources::source, store};
 
@@ -15,7 +16,6 @@ pub const ORIGIN: &str = "https://twitter.com";
 pub struct Client {
     http_client: Arc<reqwest::Client>,
     api: Api,
-    user_id: String,
 }
 
 impl Client {
@@ -41,25 +41,14 @@ impl Client {
             .as_str()
             .ok_or_else(|| anyhow!("id_str is not str"))?
             .to_owned();
+        info!("logged in as {}", user_id);
 
-        Ok(Self {
-            http_client,
-            api,
-            user_id,
-        })
+        Ok(Self { http_client, api })
     }
 }
 
 #[async_trait]
 impl super::Client for Client {
-    fn origin(&self) -> &str {
-        ORIGIN
-    }
-
-    fn identifier(&self) -> &str {
-        &self.user_id
-    }
-
     #[tracing::instrument(name = "twitter_client::Client::fetch_statuses", skip_all)]
     async fn fetch_statuses(&mut self) -> Result<Vec<source::LiveStatus>> {
         todo!()
