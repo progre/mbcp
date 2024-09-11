@@ -29,6 +29,7 @@ impl Store {
             src: Source {
                 origin: account_key.origin.clone(),
                 identifier: account_key.identifier.clone(),
+                session: None,
                 statuses: Vec::default(),
             },
             dsts: Vec::default(),

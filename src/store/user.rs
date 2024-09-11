@@ -69,6 +69,7 @@ impl From<source::LiveStatus> for SourceStatus {
 pub struct Source {
     pub origin: String,
     pub identifier: String,
+    pub session: Option<String>,
     pub statuses: Vec<SourceStatus>,
 }
 
@@ -99,6 +100,7 @@ pub enum DestinationStatus {
 pub struct Destination {
     pub origin: String,
     pub identifier: String,
+    pub session: Option<String>,
     pub statuses: Vec<DestinationStatus>,
 }
 
@@ -123,6 +125,7 @@ impl User {
         self.dsts.push(Destination {
             origin: account_key.origin.clone(),
             identifier: account_key.identifier.clone(),
+            session: None,
             statuses: Vec::default(),
         });
         self.dsts.last_mut().unwrap()

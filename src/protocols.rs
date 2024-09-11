@@ -16,6 +16,8 @@ use crate::{config, sources::source, store};
 
 #[async_trait]
 pub trait Client: Send + Sync {
+    fn to_session(&self) -> Option<String>;
+
     async fn fetch_statuses(&mut self) -> Result<Vec<source::LiveStatus>>;
 
     async fn post(
@@ -42,6 +44,7 @@ pub trait Client: Send + Sync {
 pub async fn create_client(
     http_client: Arc<reqwest::Client>,
     account: &config::Account,
+    initial_session: Option<String>,
 ) -> Result<Box<dyn Client>> {
     match account {
         config::Account::AtProtocol {
@@ -54,6 +57,7 @@ pub async fn create_client(
                 http_client,
                 identifier.into(),
                 password.into(),
+                initial_session,
             )
             .await?,
         )),

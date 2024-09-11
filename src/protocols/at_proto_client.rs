@@ -1,9 +1,13 @@
-use std::{str::FromStr, sync::Arc};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use atrium_api::{
-    agent::{store::MemorySessionStore, AtpAgent},
+    agent::{store::SessionStore, AtpAgent, Session},
     app, com,
     record::KnownRecord,
     types::{
@@ -12,8 +16,10 @@ use atrium_api::{
     },
 };
 use atrium_xrpc_client::reqwest::ReqwestClient;
+use biscuit::{Timestamp, JWT};
 use chrono::{DateTime, FixedOffset};
 use serde_json::Value;
+use tracing::info;
 
 use crate::{sources::source, store};
 
@@ -22,13 +28,62 @@ use super::at_proto::{
     Api,
 };
 
+#[derive(Clone)]
+struct MySessionStore(Arc<Mutex<Option<String>>>);
+
+#[async_trait]
+impl SessionStore for MySessionStore {
+    async fn get_session(&self) -> Option<Session> {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|x| serde_json::from_str(x).unwrap())
+    }
+
+    async fn set_session(&self, session: Session) {
+        *self.0.lock().unwrap() = Some(serde_json::to_string(&session).unwrap());
+    }
+
+    async fn clear_session(&self) {
+        *self.0.lock().unwrap() = None;
+    }
+}
+
+fn is_almost_expired(now: SystemTime, expiry: Timestamp) -> bool {
+    let now_sec = now.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    now_sec > expiry.timestamp() - 5 * 60
+}
+
+async fn init_session(
+    agent: &AtpAgent<MySessionStore, ReqwestClient>,
+    identifier: &str,
+    password: &str,
+) -> Result<()> {
+    let Some(session) = agent.get_session().await else {
+        info!("session not found, logging in");
+        agent.login(identifier, password).await?;
+        return Ok(());
+    };
+    let jwt: JWT<(), ()> = JWT::new_encoded(&session.access_jwt);
+    let payload = jwt.unverified_payload().unwrap();
+    if is_almost_expired(SystemTime::now(), payload.registered.expiry.unwrap()) {
+        // TODO: refresh token も使いたい
+        info!(
+            "session is almost expired, logging in: {:?}",
+            payload.registered.expiry.unwrap(),
+        );
+        agent.login(identifier, password).await?;
+        return Ok(());
+    }
+    Ok(())
+}
+
 pub struct Client {
-    agent: AtpAgent<MemorySessionStore, ReqwestClient>,
+    agent: AtpAgent<MySessionStore, ReqwestClient>,
     api: Api,
     http_client: Arc<reqwest::Client>,
-    session: Option<com::atproto::server::create_session::Output>,
-    pub identifier: String,
-    password: String,
+    session_store: MySessionStore,
 }
 
 impl Client {
@@ -38,57 +93,33 @@ impl Client {
         http_client: Arc<reqwest::Client>,
         identifier: String,
         password: String,
+        initial_session: Option<String>,
     ) -> Result<Self> {
+        let session_store = MySessionStore(Arc::new(Mutex::new(initial_session)));
         let agent = AtpAgent::new(
             ReqwestClient::new("https://bsky.social"),
-            MemorySessionStore::default(),
+            session_store.clone(),
         );
-        agent.login(&identifier, &password).await?;
+        init_session(&agent, &identifier, &password).await?;
         Ok(Self {
             agent,
             api: Api::new(origin),
             http_client,
-            session: None,
-            identifier,
-            password,
+            session_store,
         })
-    }
-
-    #[tracing::instrument(name = "at_proto_client::Client::init_session", skip_all)]
-    async fn init_session(&mut self) -> Result<()> {
-        let input = Object::from(com::atproto::server::create_session::InputData {
-            identifier: self.identifier.clone(),
-            password: self.password.clone(),
-            auth_factor_token: None,
-        });
-        let session = self
-            .agent
-            .api
-            .com
-            .atproto
-            .server
-            .create_session(input)
-            .await
-            .map_err(|err| anyhow::anyhow!("{:?}", err))?;
-        self.session = Some(session);
-        Ok(())
     }
 }
 
 #[async_trait]
 impl super::Client for Client {
+    fn to_session(&self) -> Option<String> {
+        self.session_store.0.lock().unwrap().clone()
+    }
+
     #[tracing::instrument(name = "at_proto_client::Client::fetch_statuses", skip_all)]
     async fn fetch_statuses(&mut self) -> Result<Vec<source::LiveStatus>> {
-        let session = match &self.session {
-            Some(some) => some,
-            None => {
-                self.init_session().await?;
-                self.session.as_ref().unwrap()
-            }
-        };
-
         let params = Object::from(app::bsky::feed::get_author_feed::ParametersData {
-            actor: session.did.clone().into(),
+            actor: self.agent.get_session().await.unwrap().did.clone().into(),
             cursor: None,
             filter: None,
             limit: Some(LimitedNonZeroU8::try_from(50).unwrap()),
@@ -115,13 +146,7 @@ impl super::Client for Client {
         external: Option<store::operations::External>,
         created_at: &DateTime<FixedOffset>,
     ) -> Result<String> {
-        let session = match &self.session {
-            Some(some) => some,
-            None => {
-                self.init_session().await?;
-                self.session.as_ref().unwrap()
-            }
-        };
+        let session = &self.agent.get_session().await.unwrap();
         let reply = to_reply(&self.api, &self.http_client, session, reply_identifier).await?;
         let embed = to_embed(&self.api, &self.http_client, session, images, external).await?;
         let record = to_record(content, facets, reply, embed, created_at);
@@ -140,14 +165,6 @@ impl super::Client for Client {
         target_identifier: &str,
         created_at: &DateTime<FixedOffset>,
     ) -> Result<String> {
-        let session = match &self.session {
-            Some(some) => some,
-            None => {
-                self.init_session().await?;
-                self.session.as_ref().unwrap()
-            }
-        };
-
         let identifier: com::atproto::repo::create_record::Output =
             serde_json::from_str(target_identifier)?;
         let record = KnownRecord::AppBskyFeedRepost(Box::new(Object::from(
@@ -168,7 +185,7 @@ impl super::Client for Client {
             .create_record(Object::from(com::atproto::repo::create_record::InputData {
                 collection: Nsid::from_str("app.bsky.feed.repost").unwrap(),
                 record: record.try_into_unknown()?,
-                repo: session.did.clone().into(),
+                repo: self.agent.get_session().await.unwrap().did.clone().into(),
                 rkey: None,
                 swap_commit: None,
                 validate: None,
@@ -188,14 +205,7 @@ impl super::Client for Client {
             .ok_or_else(|| anyhow!("uri is not string"))?;
         let rkey = uri_to_post_rkey(uri)?;
 
-        let session = match &self.session {
-            Some(some) => some,
-            None => {
-                self.init_session().await?;
-                self.session.as_ref().unwrap()
-            }
-        };
-
+        let session = &self.agent.get_session().await.unwrap();
         self.api
             .repo
             .delete_record(&self.http_client, session, &rkey)
@@ -208,17 +218,9 @@ impl super::Client for Client {
         let output: com::atproto::repo::put_record::Output = serde_json::from_str(identifier)?;
         let rkey = uri_to_repost_rkey(&output.uri)?;
 
-        let session = match &self.session {
-            Some(some) => some,
-            None => {
-                self.init_session().await?;
-                self.session.as_ref().unwrap()
-            }
-        };
-
         let input = Object::from(com::atproto::repo::delete_record::InputData {
             collection: Nsid::from_str("app.bsky.feed.repost").unwrap(),
-            repo: session.did.clone().into(),
+            repo: self.agent.get_session().await.unwrap().did.clone().into(),
             rkey,
             swap_commit: None,
             swap_record: None,

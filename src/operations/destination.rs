@@ -40,7 +40,7 @@ pub async fn post(
             .iter()
             .find(|dst| dst.to_account_key() == operation.account_pair().to_dst_key())
             .ok_or_else(|| anyhow!("dst not found"))?;
-        let mut dst_client = create_client(http_client.clone(), dst).await?;
+        let mut dst_client = create_client(http_client.clone(), dst, None).await?;
 
         let result = match operation {
             CreatePost(operation) => create_post(store, dst_client.as_mut(), operation).await,

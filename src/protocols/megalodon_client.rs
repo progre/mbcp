@@ -132,6 +132,10 @@ impl Client {
 
 #[async_trait]
 impl super::Client for Client {
+    fn to_session(&self) -> Option<String> {
+        None
+    }
+
     #[tracing::instrument(name = "megalodon_client::Client::fetch_statuses", skip_all)]
     async fn fetch_statuses(&mut self) -> Result<Vec<source::LiveStatus>> {
         let resp = self
