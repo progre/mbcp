@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use tracing::error;
 
@@ -19,16 +19,6 @@ impl Api {
             repo: Repo::new(origin.clone()),
         }
     }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Session {
-    pub did: String,
-    handle: String,
-    email: String,
-    pub access_jwt: String,
-    refresh_jwt: String,
 }
 
 async fn query<T: DeserializeOwned, U: Serialize + ?Sized>(

@@ -8,7 +8,7 @@ use tracing::error;
 
 use crate::{protocols::at_proto::procedure, utils::format_rfc3339};
 
-use super::{query, Session};
+use super::query;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,18 +119,6 @@ impl Repo {
             ("repo", session.did.as_str()),
             ("collection", "app.bsky.feed.post"),
             ("rkey", rkey),
-        ];
-
-        query(client, &self.origin, token, lexicon_id, query_params).await
-    }
-
-    #[allow(unused)]
-    pub async fn list_records(&self, client: &reqwest::Client, session: &Session) -> Result<Value> {
-        let token = &session.access_jwt;
-        let lexicon_id = "com.atproto.repo.listRecords";
-        let query_params = &[
-            ("repo", session.did.as_str()),
-            ("collection", "app.bsky.feed.post"),
         ];
 
         query(client, &self.origin, token, lexicon_id, query_params).await
