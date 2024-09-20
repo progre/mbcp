@@ -132,6 +132,13 @@ pub async fn get(
         .clone();
 
     let mut src_client = create_client(http_client.clone(), &config_user.src, session).await?;
+    {
+        let mut store = store.lock().unwrap();
+        store
+            .get_or_create_user_mut(&config_user.src.to_account_key())
+            .src
+            .session = src_client.to_session();
+    }
 
     let src_account_key = config_user.src.to_account_key();
     let (has_users_operations, src_statuses) = {
@@ -146,10 +153,6 @@ pub async fn get(
 
     {
         let mut store = store.lock().unwrap();
-        store
-            .get_or_create_user_mut(&config_user.src.to_account_key())
-            .src
-            .session = src_client.to_session();
         let stored_user = store.get_or_create_user_mut(&src_account_key);
         stored_user.src.statuses = statuses;
     }

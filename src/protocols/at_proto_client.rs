@@ -12,7 +12,7 @@ use atrium_api::{
     record::KnownRecord,
     types::{
         string::{Datetime, Nsid},
-        LimitedNonZeroU8, Object, TryIntoUnknown,
+        LimitedNonZeroU8, Object, TryFromUnknown, TryIntoUnknown,
     },
 };
 use atrium_xrpc_client::reqwest::ReqwestClient;
@@ -68,12 +68,26 @@ async fn init_session(
     let jwt: JWT<(), ()> = JWT::new_encoded(&session.access_jwt);
     let payload = jwt.unverified_payload().unwrap();
     if is_almost_expired(SystemTime::now(), payload.registered.expiry.unwrap()) {
-        // TODO: refresh token も使いたい
         info!(
-            "session is almost expired, logging in: {:?}",
+            "session is almost expired: {:?}",
             payload.registered.expiry.unwrap(),
         );
-        agent.login(identifier, password).await?;
+        let result = agent.api.com.atproto.server.refresh_session().await?;
+        info!("refreshed session");
+        let active = matches!(session.active, Some(true));
+        let session = Session::try_from_unknown(result.try_into_unknown()?)?;
+        let jwt: JWT<(), ()> = JWT::new_encoded(&session.access_jwt);
+        let payload = jwt.unverified_payload().unwrap();
+        info!("access expiry: {:?}", payload.registered.expiry.unwrap());
+        let jwt: JWT<(), ()> = JWT::new_encoded(&session.refresh_jwt);
+        let payload = jwt.unverified_payload().unwrap();
+        info!("refresh expiry: {:?}", payload.registered.expiry.unwrap());
+
+        agent.resume_session(session).await?;
+        if !active {
+            info!("relogging in");
+            agent.login(identifier, password).await?;
+        }
         return Ok(());
     }
     Ok(())
